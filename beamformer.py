@@ -1,13 +1,9 @@
-from basenode import BaseNode
-from ..dataset import DataSet
-from ..trials import baseline, concatenate_trials
 import numpy as np
-from ..stat import lw_cov
 from psychic.nodes.spatialfilter import SpatialFilter
-from sklearn.grid_search import GridSearchCV
-from sklearn.covariance import ShrunkCovariance, OAS
+from sklearn.covariance import EmpericalCovariance, ShrunkCovariance, OAS, LedoitWolf
+from sklearn.base import BaseEstimator, TransformerMixin
 
-class SpatialBeamformer(SpatialFilter):
+class LCMV(BaseEstimator, TransformerMixin):
     '''
     LCMV Spatial beamformer.
 
@@ -16,104 +12,124 @@ class SpatialBeamformer(SpatialFilter):
     template : 1D array (n_channels)
        Spatial activation pattern of the component to extract.
 
-    reg : float (default: 1e-5)
-        Regularization parameter for the covariance matrix inversion. Also
-        known as diagonal loading.
+    shrinkage : str | float (default: 'oas')
+        Shrinkage parameter for the covariance matrix inversion. This can
+        either be speficied as a number between 0 and 1, or as a string
+        indicating which automated estimation method to use:
 
-    cov_func : function (default: lw_cov)
-        Covariance function to use. Defaults to Ledoit & Wolf's function.
+        'none': No shrinkage: emperical covariance
+        'oas': Oracle approximation shrinkage
+        'lw': Ledoit-Wolf approximation shrinkage
+
+    normalize : bool (default: True)
+        Whether to remove the channel mean before applying the filter.
     '''
-    def __init__(self, template, reg='oas', cov_func=None, normalize=True):
+    def __init__(self, template, shrinkage='oas', normalize=True):
         SpatialFilter.__init__(self, 1)
         self.template = template
-        self.cov_func = cov_func
         self.template = np.asarray(template).flatten()[:, np.newaxis]
         self.normalize = normalize
-        self.reg = reg
 
         if normalize:
             self.template -= self.template.mean()
 
-    def train_(self, d):
+        if shrinkage == 'oas':
+            self.cov = OAS
+        elif shrinkage == 'lw':
+            self.cov = LedoitWolf
+        elif shrinkage == 'none':
+            self.cov = EmpericalCovariance
+        elif type(shrinkage) == float or type(shrinkage) == int:
+            self.cov = ShrunkCovariance(shrinkage=shrinkage)
+
+    def fit(self, X, y=None):
         if self.normalize:
-            d = DataSet(d.data - d.data.mean(axis=0), default=d)
-            d = baseline(d)
+            X = X - X.mean(axis=0)
+
+        # Concatenate trials
+        cont_eeg = np.transpose(X, [0,2,1]).reshape((X.shape[0], -1))
 
         # Calculate spatial covariance matrix
-        if self.reg == 'oas':
-            c = OAS(assume_centered=True).fit(concatenate_trials(d).X)
-            self.log.info('Estimated shrinkage: %f' % c.shrinkage_)
-            self.reg = c.shrinkage_
-        elif type(self.reg) == list or type(self.reg) == np.ndarray:
-            gs = GridSearchCV(ShrunkCovariance(assume_centered=True), [{'shrinkage': self.reg}], cv=2)
-            c = gs.fit(concatenate_trials(d).X).best_estimator_
-            self.log.info('Estimated shrinkage: %f' % c.shrinkage_)
-            self.reg = c.shrinkage
-        else:
-            c = ShrunkCovariance(assume_centered=True, shrinkage=self.reg).fit(concatenate_trials(d).X)
+        c = self.cov.fit(cont_eeg.T)
         sigma_x_i = c.precision_
         
+        # Compute spatial LCMV filter
         self.W = sigma_x_i.dot(self.template)
 
         # Noise normalization
         self.W = self.W.dot(
-            np.linalg.inv(reduce(np.dot, [self.template.T, sigma_x_i, self.template]))
+            np.linalg.inv(
+                reduce(np.dot, [self.template.T, sigma_x_i, self.template])
+            )
         )
 
-    def apply_(self, d):
+    def transform(self, X):
         if self.normalize:
-            d = DataSet(d.data - d.data.mean(axis=0), default=d)
-            d = baseline(d)
-        return SpatialFilter.apply_(self, d)
+            X = X - X.mean(axis=0)
+
+        nchannels = self.W.shape[1]
+        nsamples = X.shape[1]
+        ntrials = X.shape[2]
+
+        new_X = np.zeros((nchannels, nsamples, ntrials))
+        for i in range(ntrials):
+            new_X[:, :, i] = np.dot(self.W.T, X[:,:,i])
+
+        return new_X
 
 
-class TemplateBeamformer(BaseNode):
+class stLCMV(BaseEstimator, TransformerMixin):
     '''
-    LCMV Beamformer operating on a template.
+    spatio-temporal LCMV Beamformer operating on a spatio-temporal template.
 
     Parameters
     ----------
     template : 2D array (n_channels, n_samples)
        Activation pattern of the component to extract.
 
-    reg : float (default: 1e-5)
-        Regularization parameter for the covariance matrix inversion. Also
-        known as diagonal loading.
+    shrinkage : str | float (default: 'oas')
+        Shrinkage parameter for the covariance matrix inversion. This can
+        either be speficied as a number between 0 and 1, or as a string
+        indicating which automated estimation method to use:
 
-    cov_func : function (default: lw_cov)
-        Covariance function to use. Defaults to Ledoit & Wolf's function.
+        'none': No shrinkage: emperical covariance
+        'oas': Oracle approximation shrinkage
+        'lw': Ledoit-Wolf approximation shrinkage
+
+    normalize : bool (default: True)
+        Whether to remove the channel mean before applying the filter.
     '''
-    def __init__(self, template, reg='oas', cov_func=None, normalize=True):
-        BaseNode.__init__(self)
+    def __init__(self, template, shrinkage='oas', normalize=True):
+        SpatialFilter.__init__(self, 1)
         self.template = template
-        self.reg = reg
-        self.cov_func = cov_func
         self.template = np.atleast_2d(template)
         self.normalize = normalize
 
-    def center(self, d):
-        data_mean = d.data.reshape(-1, len(d)).mean(axis=1)
-        data_mean = data_mean.reshape(d.feat_shape + (1,))
-        return DataSet(d.data - data_mean, default=d)
+        if normalize:
+            self.template -= self.template.mean()
 
-    def train_(self, d):
+        if shrinkage == 'oas':
+            self.cov = OAS
+        elif shrinkage == 'lw':
+            self.cov = LedoitWolf
+        elif shrinkage == 'none':
+            self.cov = EmpericalCovariance
+        elif type(shrinkage) == float or type(shrinkage) == int:
+            self.cov = ShrunkCovariance(shrinkage=shrinkage)
+
+    def center(self, X):
+        data_mean = X.reshape(-1, X.shape[2]).mean(axis=1)
+        data_mean = data_mean.reshape(X.shape[:2] + (1,))
+        return X - data_mean
+
+    def fit(self, X, y):
         if self.normalize:
-            d = self.center(d)
+            X = self.center(X)
 
-        nsamples, ntrials = d.data.shape[1:]
+        nsamples, ntrials = X.shape[1:]
         template = self.template[:, :nsamples]
 
-        if self.reg == 'oas':
-            c = OAS(assume_centered=True).fit(d.data.reshape(-1, ntrials).T)
-            self.log.info('Estimated shrinkage: %f' % c.shrinkage_)
-            self.reg = c.shrinkage_
-        elif type(self.reg) == list or type(self.reg) == np.ndarray:
-            gs = GridSearchCV(ShrunkCovariance(assume_centered=True), [{'shrinkage': self.reg}], cv=2)
-            c = gs.fit(d.data.reshape(-1, ntrials).T).best_estimator_
-            self.log.info('Estimated shrinkage: %f' % c.shrinkage_)
-            self.reg = c.shrinkage
-        else:
-            c = ShrunkCovariance(assume_centered=True, shrinkage=self.reg).fit(d.data.reshape(-1, ntrials).T)
+        c = self.cov.fit(X.reshape(-1, ntrials).T)
         sigma_x_i = c.precision_
 
         template = self.template.flatten()[:, np.newaxis]
@@ -124,10 +140,10 @@ class TemplateBeamformer(BaseNode):
             np.linalg.inv(reduce(np.dot, [template.T, sigma_x_i, template]))
         )
 
-    def apply_(self, d):
+    def transform(self, X):
         if self.normalize:
-            d = self.center(d)
+            X = self.center(X)
 
-        ntrials = d.data.shape[2]
-        X = self.W.T.dot(d.data.reshape(-1, ntrials))
-        return DataSet(data=X, feat_lab=None, default=d)
+        ntrials = X.shape[2]
+        new_X = self.W.T.dot(X.reshape(-1, ntrials))
+        return new_X
