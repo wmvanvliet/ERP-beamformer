@@ -1,5 +1,4 @@
 import numpy as np
-from psychic.nodes.spatialfilter import SpatialFilter
 from sklearn.covariance import EmpericalCovariance, ShrunkCovariance, OAS, LedoitWolf
 from sklearn.base import BaseEstimator, TransformerMixin
 
