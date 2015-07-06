@@ -114,7 +114,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
         elif type(shrinkage) == float or type(shrinkage) == int:
             self.cov = ShrunkCovariance(shrinkage=shrinkage)
 
-    def center(self, X):
+    def _center(self, X):
         data_mean = X.reshape(-1, X.shape[2]).mean(axis=1)
         data_mean = data_mean.reshape(X.shape[:2] + (1,))
         return X - data_mean
@@ -139,7 +139,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         if self.center:
-            X = self.center(X)
+            X = self._center(X)
 
         ntrials = X.shape[2]
         new_X = self.W.T.dot(X.reshape(-1, ntrials))
