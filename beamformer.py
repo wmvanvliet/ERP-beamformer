@@ -48,7 +48,7 @@ class LCMV(BaseEstimator, TransformerMixin):
         cont_eeg = np.transpose(X, [0,2,1]).reshape((X.shape[0], -1))
 
         # Calculate spatial covariance matrix
-        c = self.cov.fit(cont_eeg.T)
+        c = self.cov().fit(cont_eeg.T)
         sigma_x_i = c.precision_
         
         # Compute spatial LCMV filter
@@ -126,7 +126,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
         nsamples, ntrials = X.shape[1:]
         template = self.template[:, :nsamples]
 
-        c = self.cov.fit(X.reshape(-1, ntrials).T)
+        c = self.cov().fit(X.reshape(-1, ntrials).T)
         sigma_x_i = c.precision_
 
         template = self.template.flatten()[:, np.newaxis]
