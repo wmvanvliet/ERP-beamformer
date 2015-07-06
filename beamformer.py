@@ -20,15 +20,15 @@ class LCMV(BaseEstimator, TransformerMixin):
         'oas': Oracle approximation shrinkage
         'lw': Ledoit-Wolf approximation shrinkage
 
-    normalize : bool (default: True)
+    center : bool (default: True)
         Whether to remove the channel mean before applying the filter.
     '''
-    def __init__(self, template, shrinkage='oas', normalize=True):
+    def __init__(self, template, shrinkage='oas', center=True):
         self.template = template
         self.template = np.asarray(template).flatten()[:, np.newaxis]
-        self.normalize = normalize
+        self.center = center
 
-        if normalize:
+        if center:
             self.template -= self.template.mean()
 
         if shrinkage == 'oas':
@@ -41,7 +41,7 @@ class LCMV(BaseEstimator, TransformerMixin):
             self.cov = ShrunkCovariance(shrinkage=shrinkage)
 
     def fit(self, X, y=None):
-        if self.normalize:
+        if self.center:
             X = X - X.mean(axis=0)
 
         # Concatenate trials
@@ -62,7 +62,7 @@ class LCMV(BaseEstimator, TransformerMixin):
         )
 
     def transform(self, X):
-        if self.normalize:
+        if self.center:
             X = X - X.mean(axis=0)
 
         nchannels = self.W.shape[1]
@@ -94,15 +94,15 @@ class stLCMV(BaseEstimator, TransformerMixin):
         'oas': Oracle approximation shrinkage
         'lw': Ledoit-Wolf approximation shrinkage
 
-    normalize : bool (default: True)
+    center : bool (default: True)
         Whether to remove the mean before applying the filter.
     '''
-    def __init__(self, template, shrinkage='oas', normalize=True):
+    def __init__(self, template, shrinkage='oas', center=True):
         self.template = template
         self.template = np.atleast_2d(template)
-        self.normalize = normalize
+        self.center = center
 
-        if normalize:
+        if center:
             self.template -= self.template.mean()
 
         if shrinkage == 'oas':
@@ -120,7 +120,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
         return X - data_mean
 
     def fit(self, X, y):
-        if self.normalize:
+        if self.center:
             X = self.center(X)
 
         nsamples, ntrials = X.shape[1:]
@@ -138,7 +138,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
         )
 
     def transform(self, X):
-        if self.normalize:
+        if self.center:
             X = self.center(X)
 
         ntrials = X.shape[2]
