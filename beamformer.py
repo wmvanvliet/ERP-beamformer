@@ -24,7 +24,6 @@ class LCMV(BaseEstimator, TransformerMixin):
         Whether to remove the channel mean before applying the filter.
     '''
     def __init__(self, template, shrinkage='oas', normalize=True):
-        SpatialFilter.__init__(self, 1)
         self.template = template
         self.template = np.asarray(template).flatten()[:, np.newaxis]
         self.normalize = normalize
@@ -96,10 +95,9 @@ class stLCMV(BaseEstimator, TransformerMixin):
         'lw': Ledoit-Wolf approximation shrinkage
 
     normalize : bool (default: True)
-        Whether to remove the channel mean before applying the filter.
+        Whether to remove the mean before applying the filter.
     '''
     def __init__(self, template, shrinkage='oas', normalize=True):
-        SpatialFilter.__init__(self, 1)
         self.template = template
         self.template = np.atleast_2d(template)
         self.normalize = normalize
