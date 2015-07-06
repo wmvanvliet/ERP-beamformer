@@ -121,7 +121,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y):
         if self.center:
-            X = self.center(X)
+            X = self._center(X)
 
         nsamples, ntrials = X.shape[1:]
         template = self.template[:, :nsamples]
