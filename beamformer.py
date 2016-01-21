@@ -43,6 +43,16 @@ class LCMV(BaseEstimator, TransformerMixin):
             self.cov = ShrunkCovariance(shrinkage=shrinkage)
 
     def fit(self, X, y=None):
+        """Fit the beamformer to the data.
+
+        Parameters
+        ----------
+        X : 3D array (n_channels, n_samples, n_trials)
+            The trials.
+        y : list of ints
+            For each trial, a label indicating to which experimental condition
+            the trial belongs.
+        """
         if self.center:
             X = X - X.mean(axis=0)
 
@@ -66,6 +76,18 @@ class LCMV(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Transform the data using the beamformer.
+
+        Parameters
+        ----------
+        X : 3D array (n_channels, n_samples, n_trials)
+            The trials.
+
+        Returns
+        -------
+        new_X : 3D array (1, n_samples, n_trials)
+            The transformed data.
+        """
         if self.center:
             X = X - X.mean(axis=0)
 
@@ -124,6 +146,16 @@ class stLCMV(BaseEstimator, TransformerMixin):
         return X - data_mean
 
     def fit(self, X, y):
+        """Fit the beamformer to the data.
+
+        Parameters
+        ----------
+        X : 3D array (n_channels, n_samples, n_trials)
+            The trials.
+        y : list of ints
+            For each trial, a label indicating to which experimental condition
+            the trial belongs.
+        """
         if self.center:
             X = self._center(X)
 
@@ -144,6 +176,18 @@ class stLCMV(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Transform the data using the beamformer.
+
+        Parameters
+        ----------
+        X : 3D array (n_channels, n_samples, n_trials)
+            The trials.
+
+        Returns
+        -------
+        new_X : 3D array (1, n_trials)
+            The transformed data.
+        """
         if self.center:
             X = self._center(X)
 
