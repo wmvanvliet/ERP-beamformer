@@ -24,6 +24,11 @@ class LCMV(BaseEstimator, TransformerMixin):
 
     center : bool (default: True)
         Whether to remove the channel mean before applying the filter.
+
+    Attributes
+    ----------
+    W_ : 2D array (1 x n_channels)
+        Row vector containing the filter weights.
     '''
     def __init__(self, template, shrinkage='oas', center=True):
         self.template = template
@@ -49,9 +54,8 @@ class LCMV(BaseEstimator, TransformerMixin):
         ----------
         X : 3D array (n_channels, n_samples, n_trials)
             The trials.
-        y : list of ints
-            For each trial, a label indicating to which experimental condition
-            the trial belongs.
+        y : None
+            Unused.
         """
         if self.center:
             X = X - X.mean(axis=0)
@@ -64,10 +68,10 @@ class LCMV(BaseEstimator, TransformerMixin):
         sigma_x_i = c.precision_
 
         # Compute spatial LCMV filter
-        self.W = sigma_x_i.dot(self.template)
+        self.W_ = sigma_x_i.dot(self.template)
 
         # Noise normalization
-        self.W = self.W.dot(
+        self.W_ = self.W_.dot(
             np.linalg.inv(
                 reduce(np.dot, [self.template.T, sigma_x_i, self.template])
             )
@@ -85,21 +89,21 @@ class LCMV(BaseEstimator, TransformerMixin):
 
         Returns
         -------
-        new_X : 3D array (1, n_samples, n_trials)
+        X_trans : 3D array (1, n_samples, n_trials)
             The transformed data.
         """
         if self.center:
             X = X - X.mean(axis=0)
 
-        nchannels = self.W.shape[1]
-        nsamples = X.shape[1]
-        ntrials = X.shape[2]
+        n_channels = self.W_.shape[1]
+        n_samples = X.shape[1]
+        n_trials = X.shape[2]
 
-        new_X = np.zeros((nchannels, nsamples, ntrials))
-        for i in range(ntrials):
-            new_X[:, :, i] = np.dot(self.W.T, X[:, :, i])
+        X_trans = np.zeros((n_channels, n_samples, n_trials))
+        for i in range(n_trials):
+            X_trans[:, :, i] = np.dot(self.W_.T, X[:, :, i])
 
-        return new_X
+        return X_trans
 
 
 class stLCMV(BaseEstimator, TransformerMixin):
@@ -121,7 +125,12 @@ class stLCMV(BaseEstimator, TransformerMixin):
         'lw': Ledoit-Wolf approximation shrinkage
 
     center : bool (default: True)
-        Whether to remove the mean before applying the filter.
+        Whether to remove the data mean before applying the filter.
+
+    Attributes
+    ----------
+    W_ : 2D array (1 x (n_channels * n_samples))
+        Row vector containing the filter weights.
     '''
     def __init__(self, template, shrinkage='oas', center=True):
         self.template = template
@@ -152,9 +161,8 @@ class stLCMV(BaseEstimator, TransformerMixin):
         ----------
         X : 3D array (n_channels, n_samples, n_trials)
             The trials.
-        y : list of ints
-            For each trial, a label indicating to which experimental condition
-            the trial belongs.
+        y : None
+            Unused.
         """
         if self.center:
             X = self._center(X)
@@ -166,10 +174,10 @@ class stLCMV(BaseEstimator, TransformerMixin):
         sigma_x_i = c.precision_
 
         template = self.template.flatten()[:, np.newaxis]
-        self.W = sigma_x_i.dot(template)
+        self.W_ = sigma_x_i.dot(template)
 
         # Noise normalization
-        self.W = self.W.dot(
+        self.W_ = self.W_.dot(
             np.linalg.inv(reduce(np.dot, [template.T, sigma_x_i, template]))
         )
 
@@ -185,15 +193,15 @@ class stLCMV(BaseEstimator, TransformerMixin):
 
         Returns
         -------
-        new_X : 3D array (1, n_trials)
+        X_trans : 3D array (1, n_trials)
             The transformed data.
         """
         if self.center:
             X = self._center(X)
 
-        ntrials = X.shape[2]
-        new_X = self.W.T.dot(X.reshape(-1, ntrials))
-        return new_X
+        n_trials = X.shape[2]
+        X_trans = self.W_.T.dot(X.reshape(-1, n_trials))
+        return X_trans
 
 
 def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
