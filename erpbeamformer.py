@@ -276,6 +276,90 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
     return spat_pat
 
 
+def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
+                            method='peak_mean'):
+    """Refine the estimation of a temporal pattern.
+
+    Parameters
+    ----------
+    temp_pat : 1D array (n_samples)
+        The temporal pattern to refine
+    baseline_time : tuple of ints
+        The start and end time (in samples) of the baseline period (the period
+        before the onset of the event marker). This period is used to
+        re-baseline the signal after the spatial beamformer has been applied to
+        it.
+    roi_time : tuple of ints | None
+        The start and end time (in samples) of the time region of interest.
+        This region is used during the refining stage. If None, all samples are
+        marked as the ROI. Defaults to None.
+    method : 'zero' | 'zero-cross' | 'thres' | None
+        The method used to refine the template:
+        'zero':      Zero out everything outside the time region of interest.
+        'peak-mean': Find the peak inside the time region of interest. Then,
+                     find the points before and after the peak, where the
+                     signal drops below the average signal outside the time
+                     region of interest.  Zero out everything outside those
+                     points.
+        'thres':     As well as zero-ing out everything outside the time region
+                     of interest, also zero out any part of the signal which
+                     amplitude is below 4 standard deviations of the signal
+                     amplitude during the baseline period.
+        Defaults to 'peak-mean'.
+
+    Returns
+    -------
+    ref_temp_pat : 1D array (n_samples)
+        The refined pattern.
+    """
+    ref_temp_pat = temp_pat.copy()
+
+    # Refine the template if requested
+    if method == 'zero':
+        ref_temp_pat -= np.min(ref_temp_pat[:, roi_time[0]:roi_time[1]])
+        ref_temp_pat[:, :roi_time[0]] = 0
+        ref_temp_pat[:, roi_time[1]:] = 0
+
+    elif method == 'peak-mean':
+        ref_temp_pat -= (
+            np.mean(ref_temp_pat[:, :roi_time[0]]) +
+            np.mean(ref_temp_pat[:, roi_time[1]:])
+        ) / 2.
+
+        peak_time = np.argmax(np.abs(ref_temp_pat[:, roi_time[0]:roi_time[1]]))
+        peak_time += roi_time[0]
+
+        # Find zero crossings
+        lcross = peak_time
+        while lcross > 0 and ref_temp_pat[:, lcross] > 0:
+            lcross -= 1
+
+        rcross = peak_time
+        while rcross < len(ref_temp_pat)-1 and ref_temp_pat[:, rcross] > 0:
+            rcross += 1
+
+        # Limit temporal pattern to area between zero crossings
+        ref_temp_pat[:, :lcross + 1] = 0
+        ref_temp_pat[:, rcross:] = 0
+        ref_temp_pat -= np.min(ref_temp_pat[:, lcross + 1:rcross])
+
+    elif method == 'thres':
+        baseline_std = np.std(
+            np.abs(ref_temp_pat[:, baseline_time[0]:baseline_time[1]])
+        )
+        mask = np.abs(ref_temp_pat) < 4 * baseline_std
+        ref_temp_pat -= np.min(ref_temp_pat[np.logical_not(mask)])
+        ref_temp_pat[mask] = 0
+        ref_temp_pat[:, :roi_time[0]] = 0
+        ref_temp_pat[:, roi_time[1]:] = 0
+
+    elif method is not None:
+        raise ValueError("Invalid value for refine parameter. Choose one of "
+                         "'zero', 'peak-mean', 'thres' or None.")
+
+    return ref_temp_pat
+
+
 def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
                            refine='zero'):
     """Estimate the temporal pattern of an ERP component.
@@ -304,20 +388,6 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
         The start and end time (in samples) of the time region of interest.
         This region is used during the refining stage. If None, all samples are
         marked as the ROI. Defaults to None.
-    refine : 'zero' | 'zero-cross' | 'thres' | None
-        The method used to refine the template:
-        'zero':      Zero out everything outside the time region of interest.
-        'peak-mean': Find the peak inside the time region of interest. Then,
-                     find the points before and after the peak, where the
-                     signal drops below the average signal outside the time
-                     region of interest.  Zero out everything outside those
-                     points.
-        'thres':     As well as zero-ing out everything outside the time region
-                     of interest, also zero out any part of the signal which
-                     amplitude is below 4 standard deviations of the signal
-                     amplitude during the baseline period.
-        None:        Don't do any refining of the template.
-        Defaults to None.
 
     Returns
     -------
@@ -343,48 +413,8 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
     temp_pat = (timecourses[:, :, y == conditions[0]].mean(axis=2) -
                 timecourses[:, :, y == conditions[1]].mean(axis=2))
 
-    # Refine the template if requested
-    if refine == 'zero':
-        temp_pat -= np.min(temp_pat[:, roi_time[0]:roi_time[1]])
-        temp_pat[:, :roi_time[0]] = 0
-        temp_pat[:, roi_time[1]:] = 0
-
-    elif refine == 'peak-mean':
-        temp_pat -= (
-            np.mean(temp_pat[:, :roi_time[0]]) +
-            np.mean(temp_pat[:, roi_time[1]:])
-        ) / 2.
-
-        peak_time = np.argmax(np.abs(temp_pat[:, roi_time[0]:roi_time[1]]))
-        peak_time += roi_time[0]
-
-        # Find zero crossings
-        lcross = peak_time
-        while lcross > 0 and temp_pat[:, lcross] > 0:
-            lcross -= 1
-
-        rcross = peak_time
-        while rcross < len(temp_pat)-1 and temp_pat[:, rcross] > 0:
-            rcross += 1
-
-        # Limit temporal pattern to area between zero crossings
-        temp_pat[:, :lcross + 1] = 0
-        temp_pat[:, rcross:] = 0
-        temp_pat -= np.min(temp_pat[:, lcross + 1:rcross])
-
-    elif refine == 'thres':
-        baseline_std = np.std(
-            np.abs(temp_pat[:, baseline_time[0]:baseline_time[1]])
-        )
-        mask = np.abs(temp_pat) < 4 * baseline_std
-        temp_pat -= np.min(temp_pat[np.logical_not(mask)])
-        temp_pat[mask] = 0
-        temp_pat[:, :roi_time[0]] = 0
-        temp_pat[:, roi_time[1]:] = 0
-
-    elif refine is not None:
-        raise ValueError("Invalid value for refine parameter. Choose one of "
-                         "'zero', 'peak-mean', 'thres' or None.")
+    temp_pat = refine_temporal_pattern(temp_pat, baseline_time, roi_time,
+                                       refine)
 
     # Normalize the temporal template so all values are in the range [-1, 1]
     temp_pat /= np.max(np.abs(temp_pat))
