@@ -64,7 +64,7 @@ class LCMV(BaseEstimator, TransformerMixin):
         cont_eeg = np.transpose(X, [0, 2, 1]).reshape((X.shape[0], -1))
 
         # Calculate spatial covariance matrix
-        c = self.cov().fit(cont_eeg.T)
+        c = self.cov.fit(cont_eeg.T)
         sigma_x_i = c.precision_
 
         # Compute spatial LCMV filter
@@ -277,7 +277,7 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
 
 
 def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
-                            method='peak_mean'):
+                            method='zero'):
     """Refine the estimation of a temporal pattern.
 
     Parameters
@@ -322,9 +322,16 @@ def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
 
     elif method == 'peak-mean':
         ref_temp_pat -= (
-            np.mean(ref_temp_pat[:, :roi_time[0]]) +
-            np.mean(ref_temp_pat[:, roi_time[1]:])
+            np.mean(
+                np.hstack(
+                    (ref_temp_pat[:, :roi_time[0]],
+                     ref_temp_pat[:, roi_time[1]:])
+                ),
+                axis=1
+            )[:, np.newaxis]
         ) / 2.
+
+        return ref_temp_pat
 
         peak_time = np.argmax(np.abs(ref_temp_pat[:, roi_time[0]:roi_time[1]]))
         peak_time += roi_time[0]
@@ -333,6 +340,7 @@ def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
         lcross = peak_time
         while lcross > 0 and ref_temp_pat[:, lcross] > 0:
             lcross -= 1
+        print lcross
 
         rcross = peak_time
         while rcross < len(ref_temp_pat)-1 and ref_temp_pat[:, rcross] > 0:
@@ -388,6 +396,19 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
         The start and end time (in samples) of the time region of interest.
         This region is used during the refining stage. If None, all samples are
         marked as the ROI. Defaults to None.
+    refine : 'zero' | 'zero-cross' | 'thres' | None
+        The method used to refine the template:
+        'zero':      Zero out everything outside the time region of interest.
+        'peak-mean': Find the peak inside the time region of interest. Then,
+                     find the points before and after the peak, where the
+                     signal drops below the average signal outside the time
+                     region of interest.  Zero out everything outside those
+                     points.
+        'thres':     As well as zero-ing out everything outside the time region
+                     of interest, also zero out any part of the signal which
+                     amplitude is below 4 standard deviations of the signal
+                     amplitude during the baseline period.
+        Defaults to 'zero'.
 
     Returns
     -------
