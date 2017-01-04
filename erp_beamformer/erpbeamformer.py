@@ -10,7 +10,7 @@ class LCMV(BaseEstimator, TransformerMixin):
 
     Parameters
     ----------
-    template : 1D array (n_channels)
+    template : 1D array (n_channels,)
         Spatial activation pattern of the component to extract.
 
     shrinkage : str | float (default: 'oas')
@@ -52,16 +52,16 @@ class LCMV(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X : 3D array (n_channels, n_samples, n_trials)
+        X : 3D array (n_trials, n_channels, n_samples)
             The trials.
         y : None
             Unused.
         """
         if self.center:
-            X = X - X.mean(axis=0)
+            X = X - X.mean(axis=1, keepdims=True)
 
-        # Concatenate trials
-        cont_eeg = np.transpose(X, [0, 2, 1]).reshape((X.shape[0], -1))
+        # Concatenate trials into an (n_channels, n_samples) matrix
+        cont_eeg = np.transpose(X, [1, 0, 2]).reshape((X.shape[1], -1))
 
         # Calculate spatial covariance matrix
         c = self.cov.fit(cont_eeg.T)
@@ -84,24 +84,21 @@ class LCMV(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X : 3D array (n_channels, n_samples, n_trials)
+        X : 3D array (n_trials, n_channels, n_samples)
             The trials.
 
         Returns
         -------
-        X_trans : 3D array (1, n_samples, n_trials)
+        X_trans : 2D array (n_trials, n_samples)
             The transformed data.
         """
         if self.center:
-            X = X - X.mean(axis=0)
+            X = X - X.mean(axis=1, keepdims=True)
 
-        n_channels = self.W_.shape[1]
-        n_samples = X.shape[1]
-        n_trials = X.shape[2]
-
-        X_trans = np.zeros((n_channels, n_samples, n_trials))
+        n_trials, _, n_samples = X.shape
+        X_trans = np.zeros((n_trials, n_samples))
         for i in range(n_trials):
-            X_trans[:, :, i] = np.dot(self.W_.T, X[:, :, i])
+            X_trans[i, :] = np.dot(self.W_.T, X[i, :, :]).ravel()
 
         return X_trans
 
@@ -150,8 +147,8 @@ class stLCMV(BaseEstimator, TransformerMixin):
             self.cov = ShrunkCovariance(shrinkage=shrinkage)
 
     def _center(self, X):
-        data_mean = X.reshape(-1, X.shape[2]).mean(axis=1)
-        data_mean = data_mean.reshape(X.shape[:2] + (1,))
+        data_mean = X.reshape(X.shape[0], -1).mean(axis=0)
+        data_mean = data_mean.reshape((1,) + X.shape[1:])
         return X - data_mean
 
     def fit(self, X, y):
@@ -159,7 +156,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X : 3D array (n_channels, n_samples, n_trials)
+        X : 3D array (n_trials, n_channels, n_samples)
             The trials.
         y : None
             Unused.
@@ -167,10 +164,10 @@ class stLCMV(BaseEstimator, TransformerMixin):
         if self.center:
             X = self._center(X)
 
-        nsamples, ntrials = X.shape[1:]
-        template = self.template[:, :nsamples]
+        n_trials, _, n_samples = X.shape
+        template = self.template[:, :n_samples]
 
-        c = self.cov().fit(X.reshape(-1, ntrials).T)
+        c = self.cov().fit(X.reshape(n_trials, -1))
         sigma_x_i = c.precision_
 
         template = self.template.flatten()[:, np.newaxis]
@@ -188,19 +185,19 @@ class stLCMV(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X : 3D array (n_channels, n_samples, n_trials)
+        X : 3D array (n_trials, n_channels, n_samples)
             The trials.
 
         Returns
         -------
-        X_trans : 3D array (1, n_trials)
+        X_trans : 3D array (n_trials, 1)
             The transformed data.
         """
         if self.center:
             X = self._center(X)
 
-        n_trials = X.shape[2]
-        X_trans = self.W_.T.dot(X.reshape(-1, n_trials))
+        n_trials = X.shape[0]
+        X_trans = X.reshape(n_trials, -1).dot(self.W_)
         return X_trans
 
 
@@ -215,9 +212,9 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
 
     Parameters
     ----------
-    X : 3D array (n_channels, n_samples, n_trials)
+    X : 3D array (n_trials, n_channels, n_samples)
         The trials.
-    y : list of ints
+    y : 1D array (n_trials,) or 2D array (n_trials, 1)
         For each trial, a label indicating to which experimental condition
         the trial belongs.
     roi_time : tuple of ints (start, end) | None
@@ -241,6 +238,11 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
     spat_pat : 1D array (n_channels)
         The spatial pattern of the ERP component.
     """
+    if y.ndims == 2:
+        if y.shape[1] != 1:
+            raise ValueError('y should be an (n_trials, 1) array.')
+        y = y.ravel()
+
     conditions = np.unique(y)
     if len(conditions) != 2:
         raise ValueError('There should be exactly 2 experimental conditions.')
@@ -252,8 +254,8 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
         roi_time = (0, X.shape[1])
 
     # Compute ERP difference waveform
-    diff = (X[:, :, y == conditions[0]].mean(axis=2) -
-            X[:, :, y == conditions[1]].mean(axis=2))
+    diff = (X[y == conditions[0]].mean(axis=0) -
+            X[y == conditions[1]].mean(axis=0))
 
     if method == 'peak':
         # Extract region of interest to look for the roi
@@ -394,14 +396,14 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
     The temporal pattern is constructed by using a spatial beamformer to
     estimate the ERP timecourse of trials belonging to two experimental
     conditions. The temporal pattern is then defined as the difference
-    timecourse between at the two conditions. This pattern is than refined by
-    zero-ing out everything outside of the time region of interest.
+    timecourse between at the two conditions. This pattern is then optionally
+    refined by zero-ing out irrelevant samples.
 
     Parameters
     ----------
-    X : 3D array (n_channels, n_samples, n_trials)
+    X : 3D array (n_trials, n_channels, n_samples)
         The trials.
-    y : list of ints
+    y : 1D array (n_trials,) or 2D array (n_trials, 1)
         For each trial, a label indicating to which experimental condition
         the trial belongs.
     spat_bf : instance of LCMV
@@ -442,6 +444,11 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
     temp_pat : 1D array (n_samples,)
         The temporal pattern of the ERP component.
     """
+    if y.ndims == 2:
+        if y.shape[1] != 1:
+            raise ValueError('y should be an (n_trials, 1) array.')
+        y = y.ravel()
+
     conditions = np.unique(y)
     if len(conditions) != 2:
         raise ValueError('There should be exactly 2 experimental conditions.')
@@ -450,13 +457,14 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
 
     # Re-baseline the signal
     timecourses -= np.mean(
-        timecourses[:, baseline_time[0]:baseline_time[1], :],
-        axis=1
+        timecourses[..., baseline_time[0]:baseline_time[1]],
+        axis=-1,
+        keepdims=True,
     )
 
     # Use the difference timecourse as initial estimate of the temporal pattern
-    temp_pat = (timecourses[:, :, y == conditions[0]].mean(axis=2) -
-                timecourses[:, :, y == conditions[1]].mean(axis=2))
+    temp_pat = (timecourses[y == conditions[0]].mean(axis=2) -
+                timecourses[y == conditions[1]].mean(axis=2))
 
     if refine is not None:
         if refine_params is None:
