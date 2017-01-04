@@ -232,7 +232,7 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
         Defaults to None.
     method : 'peak' | 'mean'
         When 'peak', the spatial pattern is the signal at the time of maximum
-        difference between the experimental conditions.
+        squared difference between the experimental conditions.
         When 'mean', the spatial pattern is the mean difference waveform
         between the experimental conditions. Defaults to 'peak'.
 
@@ -260,15 +260,14 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
         ROI = diff[roi_channels, roi_time[0]:roi_time[1]]
 
         # Determine peak time for the roi
-        peak_time = np.argmax(np.max(np.abs(ROI), axis=0)) + roi_time[0]
+        peak_time = np.argmax(np.max(ROI ** 2, axis=0)) + roi_time[0]
 
         spat_pat = diff[:, peak_time]
 
     elif method == 'mean':
         # Extract region of interest to look for the roi
         ROI = diff[:, roi_time[0]:roi_time[1]]
-
-        spat_pat = diff.mean(axis=1)
+        spat_pat = ROI.mean(axis=1)
 
     # Normalize the spatial template so all values are in the range [-1, 1]
     spat_pat /= np.max(np.abs(spat_pat))
@@ -276,51 +275,65 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
     return spat_pat
 
 
-def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
-                            method='zero'):
-    """Refine the estimation of a temporal pattern.
+def refine_pattern(temp_pat, method, method_params):
+    """Refine a pattern.
+
+    Refine a spatio-temporal or temporal pattern by setting some samples to
+    zero.
 
     Parameters
     ----------
-    temp_pat : 1D array (n_samples)
+    temp_pat : 1D array (n_samples) | 2D array (n_channels, n_samples)
         The temporal pattern to refine
-    baseline_time : tuple of ints
-        The start and end time (in samples) of the baseline period (the period
-        before the onset of the event marker). This period is used to
-        re-baseline the signal after the spatial beamformer has been applied to
-        it.
-    roi_time : tuple of ints | None
-        The start and end time (in samples) of the time region of interest.
-        This region is used during the refining stage. If None, all samples are
-        marked as the ROI. Defaults to None.
-    method : 'zero' | 'peak-mean' | 'thres' | None
+    method : 'zero' | 'peak-mean' | 'thres'
         The method used to refine the template:
         'zero':      Zero out everything outside the time region of interest.
         'peak-mean': Find the peak inside the time region of interest. Then,
                      find the points before and after the peak, where the
                      signal drops below the average signal outside the time
-                     region of interest.  Zero out everything outside those
+                     region of interest. Zero out everything outside those
                      points.
         'thres':     As well as zero-ing out everything outside the time region
                      of interest, also zero out any part of the signal which
                      amplitude is below 4 standard deviations of the signal
                      amplitude during the baseline period.
-        Defaults to 'zero'.
+    method_params : dict
+        Parameters for the chosen method. Each method uses different parameters
+        taken from this dictionary. Possible parameters are:
+
+        Used by 'zero', 'peak-mean' and 'thres':
+        roi_time : tuple of ints
+            The start and end time (in samples) of the time region of interest.
+
+        Used by 'thres':
+        baseline_time : tuple of ints
+            The start and end time (in samples) of the baseline period (the
+            period before the onset of the event marker).
 
     Returns
     -------
-    ref_temp_pat : 1D array (n_samples)
+    ref_temp_pat : 1D array (n_samples) | 2D array (n_channels, n_samples)
         The refined pattern.
     """
-    ref_temp_pat = temp_pat.copy()
+    orig_dim = temp_pat.shape
+    ref_temp_pat = np.atleast_2d(temp_pat.copy())
 
-    # Refine the template if requested
     if method == 'zero':
-        ref_temp_pat -= np.min(ref_temp_pat[:, roi_time[0]:roi_time[1]])
+        try:
+            roi_time = method_params['roi_time']
+        except:
+            raise ValueError('The parameter "roi_time" is missing from the '
+                             'method_params dictionary.')
+        ref_temp_pat -= np.min(ref_temp_pat[roi_time[0]:roi_time[1]])
         ref_temp_pat[:, :roi_time[0]] = 0
         ref_temp_pat[:, roi_time[1]:] = 0
 
     elif method == 'peak-mean':
+        try:
+            roi_time = method_params['roi_time']
+        except:
+            raise ValueError('The parameter "roi_time" is missing from the '
+                             'method_params dictionary.')
         ref_temp_pat -= (
             np.mean(
                 np.hstack(
@@ -352,6 +365,12 @@ def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
         ref_temp_pat -= np.min(ref_temp_pat[:, lcross + 1:rcross])
 
     elif method == 'thres':
+        try:
+            roi_time = method_params['roi_time']
+            baseline_time = method_params['baseline_time']
+        except:
+            raise ValueError('The parameter "roi_time"  or "baselien_time" is '
+                             'missing from the method_params dictionary.')
         baseline_std = np.std(
             np.abs(ref_temp_pat[:, baseline_time[0]:baseline_time[1]])
         )
@@ -361,15 +380,15 @@ def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
         ref_temp_pat[:, :roi_time[0]] = 0
         ref_temp_pat[:, roi_time[1]:] = 0
 
-    elif method is not None:
+    else:
         raise ValueError("Invalid value for refine parameter. Choose one of "
-                         "'zero', 'peak-mean', 'thres' or None.")
+                         "'zero', 'peak-mean' or 'thres'.")
 
-    return ref_temp_pat
+    return ref_temp_pat.reshape(orig_dim)
 
 
-def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
-                           refine='zero'):
+def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
+                           refine_params=None):
     """Estimate the temporal pattern of an ERP component.
 
     The temporal pattern is constructed by using a spatial beamformer to
@@ -392,10 +411,6 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
         before the onset of the event marker). This period is used to
         re-baseline the signal after the spatial beamformer has been applied to
         it.
-    roi_time : tuple of ints | None
-        The start and end time (in samples) of the time region of interest.
-        This region is used during the refining stage. If None, all samples are
-        marked as the ROI. Defaults to None.
     refine : 'zero' | 'peak-mean' | 'thres' | None
         The method used to refine the template:
         'zero':      Zero out everything outside the time region of interest.
@@ -408,7 +423,19 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
                      region of interest, also zero out any part of the signal
                      which amplitude is below 4 standard deviations of the
                      signal amplitude during the baseline period.
-        Defaults to 'zero'.
+        Defaults to None, which means no refining of the template is performed.
+    refine_params : dict | None
+        Parameters for the chosen refining method. Each method uses different
+        parameters taken from this dictionary. Possible parameters are:
+
+        Used by 'zero', 'peak-mean' and 'thres':
+        roi_time : tuple of ints
+            The start and end time (in samples) of the time region of interest.
+
+        Used by 'thres':
+        baseline_time : tuple of ints
+            Copied from the baseline_time parameter given to the
+            infer_temporal_pattern function.
 
     Returns
     -------
@@ -418,9 +445,6 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
     conditions = np.unique(y)
     if len(conditions) != 2:
         raise ValueError('There should be exactly 2 experimental conditions.')
-
-    if roi_time is None:
-        roi_time = (0, X.shape[1])
 
     timecourses = spat_bf.fit_transform(X, y)
 
@@ -434,8 +458,11 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
     temp_pat = (timecourses[:, :, y == conditions[0]].mean(axis=2) -
                 timecourses[:, :, y == conditions[1]].mean(axis=2))
 
-    temp_pat = refine_temporal_pattern(temp_pat, baseline_time, roi_time,
-                                       refine)
+    if refine is not None:
+        if refine_params is None:
+            refine_params = dict()
+        refine_params['baseline_time'] = baseline_time
+        temp_pat = refine_pattern(temp_pat, refine, refine_params)
 
     # Normalize the temporal template so all values are in the range [-1, 1]
     temp_pat /= np.max(np.abs(temp_pat))
