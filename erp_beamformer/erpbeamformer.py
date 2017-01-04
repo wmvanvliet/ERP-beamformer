@@ -293,7 +293,7 @@ def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
         The start and end time (in samples) of the time region of interest.
         This region is used during the refining stage. If None, all samples are
         marked as the ROI. Defaults to None.
-    method : 'zero' | 'zero-cross' | 'thres' | None
+    method : 'zero' | 'peak-mean' | 'thres' | None
         The method used to refine the template:
         'zero':      Zero out everything outside the time region of interest.
         'peak-mean': Find the peak inside the time region of interest. Then,
@@ -305,7 +305,7 @@ def refine_temporal_pattern(temp_pat, baseline_time, roi_time=None,
                      of interest, also zero out any part of the signal which
                      amplitude is below 4 standard deviations of the signal
                      amplitude during the baseline period.
-        Defaults to 'peak-mean'.
+        Defaults to 'zero'.
 
     Returns
     -------
@@ -396,7 +396,7 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
         The start and end time (in samples) of the time region of interest.
         This region is used during the refining stage. If None, all samples are
         marked as the ROI. Defaults to None.
-    refine : 'zero' | 'zero-cross' | 'thres' | None
+    refine : 'zero' | 'peak-mean' | 'thres' | None
         The method used to refine the template:
         'zero':      Zero out everything outside the time region of interest.
         'peak-mean': Find the peak inside the time region of interest. Then,
@@ -404,10 +404,10 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, roi_time=None,
                      signal drops below the average signal outside the time
                      region of interest.  Zero out everything outside those
                      points.
-        'thres':     As well as zero-ing out everything outside the time region
-                     of interest, also zero out any part of the signal which
-                     amplitude is below 4 standard deviations of the signal
-                     amplitude during the baseline period.
+        'thres':     As well as zero-ing out everything outside the time
+                     region of interest, also zero out any part of the signal
+                     which amplitude is below 4 standard deviations of the
+                     signal amplitude during the baseline period.
         Defaults to 'zero'.
 
     Returns
