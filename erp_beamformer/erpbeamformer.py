@@ -24,14 +24,15 @@ class LCMV(BaseEstimator, TransformerMixin):
 
     center : bool (default: True)
         Whether to remove the channel mean before applying the filter.
+        WARNING: only set to False if the data has been pre-centered. Applying
+        the filter to un-centered data may result in inaccuracies.
 
     Attributes
     ----------
-    W_ : 2D array (1 x n_channels)
-        Row vector containing the filter weights.
+    W_ : 2D array (n_channels, 1)
+        Column vector containing the filter weights.
     '''
     def __init__(self, template, shrinkage='oas', center=True):
-        self.template = template
         self.template = np.asarray(template).flatten()[:, np.newaxis]
         self.center = center
 
@@ -39,13 +40,15 @@ class LCMV(BaseEstimator, TransformerMixin):
             self.template -= self.template.mean()
 
         if shrinkage == 'oas':
-            self.cov = OAS
+            self.cov = OAS()
         elif shrinkage == 'lw':
-            self.cov = LedoitWolf
+            self.cov = LedoitWolf()
         elif shrinkage == 'none':
-            self.cov = EmpiricalCovariance
+            self.cov = EmpiricalCovariance()
         elif type(shrinkage) == float or type(shrinkage) == int:
             self.cov = ShrunkCovariance(shrinkage=shrinkage)
+        else:
+            raise ValueError('Invalid value for shrinkage parameter.')
 
     def fit(self, X, y=None):
         """Fit the beamformer to the data.
@@ -123,11 +126,13 @@ class stLCMV(BaseEstimator, TransformerMixin):
 
     center : bool (default: True)
         Whether to remove the data mean before applying the filter.
+        WARNING: only set to False if the data has been pre-centered. Applying
+        the filter to un-centered data may result in inaccuracies.
 
     Attributes
     ----------
-    W_ : 2D array (1 x (n_channels * n_samples))
-        Row vector containing the filter weights.
+    W_ : 2D array (n_channels * n_samples, 1)
+        Column vector containing the filter weights.
     '''
     def __init__(self, template, shrinkage='oas', center=True):
         self.template = template
@@ -135,21 +140,22 @@ class stLCMV(BaseEstimator, TransformerMixin):
         self.center = center
 
         if center:
-            self.template -= self.template.mean()
+            self.template -= np.mean(self.template)
 
         if shrinkage == 'oas':
-            self.cov = OAS
+            self.cov = OAS()
         elif shrinkage == 'lw':
-            self.cov = LedoitWolf
+            self.cov = LedoitWolf()
         elif shrinkage == 'none':
-            self.cov = EmpiricalCovariance
+            self.cov = EmpiricalCovariance()
         elif type(shrinkage) == float or type(shrinkage) == int:
             self.cov = ShrunkCovariance(shrinkage=shrinkage)
+        else:
+            raise ValueError('Invalid value for shrinkage parameter.')
 
     def _center(self, X):
-        data_mean = X.reshape(X.shape[0], -1).mean(axis=0)
-        data_mean = data_mean.reshape((1,) + X.shape[1:])
-        return X - data_mean
+        data_mean = X.reshape(X.shape[0], -1).mean(axis=1)
+        return X - data_mean[:, np.newaxis, np.newaxis]
 
     def fit(self, X, y):
         """Fit the beamformer to the data.
@@ -167,7 +173,7 @@ class stLCMV(BaseEstimator, TransformerMixin):
         n_trials, _, n_samples = X.shape
         template = self.template[:, :n_samples]
 
-        c = self.cov().fit(X.reshape(n_trials, -1))
+        c = self.cov.fit(X.reshape(n_trials, -1))
         sigma_x_i = c.precision_
 
         template = self.template.flatten()[:, np.newaxis]
@@ -238,7 +244,7 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
     spat_pat : 1D array (n_channels)
         The spatial pattern of the ERP component.
     """
-    if y.ndims == 2:
+    if y.ndim == 2:
         if y.shape[1] != 1:
             raise ValueError('y should be an (n_trials, 1) array.')
         y = y.ravel()
@@ -355,7 +361,6 @@ def refine_pattern(temp_pat, method, method_params):
         lcross = peak_time
         while lcross > 0 and ref_temp_pat[:, lcross] > 0:
             lcross -= 1
-        print lcross
 
         rcross = peak_time
         while rcross < len(ref_temp_pat)-1 and ref_temp_pat[:, rcross] > 0:
@@ -444,7 +449,7 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
     temp_pat : 1D array (n_samples,)
         The temporal pattern of the ERP component.
     """
-    if y.ndims == 2:
+    if y.ndim == 2:
         if y.shape[1] != 1:
             raise ValueError('y should be an (n_trials, 1) array.')
         y = y.ravel()
