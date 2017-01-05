@@ -1,3 +1,9 @@
+"""
+Some functions for designing spatial and temporal patterns for use with
+beamformer filters.
+
+Author: Marijn van Vliet <w.m.vanvliet@gmail.com>
+"""
 import numpy as np
 from scipy.stats import norm
 

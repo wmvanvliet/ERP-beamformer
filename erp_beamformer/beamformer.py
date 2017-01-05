@@ -1,3 +1,9 @@
+"""
+Classes for spatial and spatio-temporal beamforming. The API is designed to be
+interoperable with scikit-learn.
+
+Author: Marijn van Vliet <w.m.vanvliet@gmail.com>
+"""
 import numpy as np
 from sklearn.covariance import (EmpiricalCovariance, ShrunkCovariance, OAS,
                                 LedoitWolf)
