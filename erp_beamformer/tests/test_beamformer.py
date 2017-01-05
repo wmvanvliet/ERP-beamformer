@@ -5,35 +5,36 @@ import itertools
 from sklearn.covariance import (EmpiricalCovariance, ShrunkCovariance, OAS,
                                 LedoitWolf)
 
-import erp_beamformer
+from erp_beamformer import LCMV, stLCMV
 
 n_channels = 7
 n_samples = 12
 n_trials = 5
 
-def gen_spatial_pattern():
+
+def _gen_spatial_pattern():
     return np.array([1, 4, 2, -3, 5, 0, 0]).astype(float)
 
 
-def gen_temporal_pattern():
+def _gen_temporal_pattern():
     return np.array([0, 0, 0, 0, 1, 2, 3, 2, 1, 0, 0, 0]).astype(float)
 
 
-def gen_spat_temp_pattern():
-    return np.outer(gen_spatial_pattern(), gen_temporal_pattern())
+def _gen_spat_temp_pattern():
+    return np.outer(_gen_spatial_pattern(), _gen_temporal_pattern())
 
 
-def gen_trials():
+def _gen_trials():
     y = np.array([1, 2, 4, -2, 3]).astype(float)
-    return np.einsum('i,jk->ijk', y, gen_spat_temp_pattern()), y
+    return np.einsum('i,jk->ijk', y, _gen_spat_temp_pattern()), y
 
 
 def test_lcmv():
     """Test the LCMV class."""
 
     # Generate some mock data without any noise
-    spat_pat = gen_spatial_pattern()
-    X, y = gen_trials()
+    spat_pat = _gen_spatial_pattern()
+    X, y = _gen_trials()
 
     # All possible combinations of parameters
     parameters = itertools.product(
@@ -43,12 +44,11 @@ def test_lcmv():
 
     # Test normal operation
     for shrinkage, center in parameters:
-        filt = erp_beamformer.LCMV(spat_pat, shrinkage=shrinkage,
-                                   center=center)
+        filt = LCMV(spat_pat, shrinkage=shrinkage, center=center)
 
         # Test result of the filter
         assert_allclose(filt.fit_transform(X, y),
-                        np.outer(y, gen_temporal_pattern()))
+                        np.outer(y, _gen_temporal_pattern()))
 
         # Test if weight matrix has been properly stored
         assert_equal(filt.W_.shape, (n_channels, 1))
@@ -65,15 +65,15 @@ def test_lcmv():
             assert_equal(filt.cov.shrinkage, shrinkage)
 
     # Invalid shrinkage parameter
-    assert_raises(ValueError, erp_beamformer.LCMV, spat_pat, 'invalid')
+    assert_raises(ValueError, LCMV, spat_pat, 'invalid')
 
 
 def test_stlcmv():
     """Test the stLCMV class."""
 
     # Generate some mock data without any noise
-    spat_temp_pat = gen_spat_temp_pattern()
-    X, y = gen_trials()
+    spat_temp_pat = _gen_spat_temp_pattern()
+    X, y = _gen_trials()
     y = y[:, np.newaxis]
 
     # All possible combinations of parameters
@@ -84,8 +84,7 @@ def test_stlcmv():
 
     # Test normal operation
     for shrinkage, center in parameters:
-        filt = erp_beamformer.stLCMV(spat_temp_pat, shrinkage=shrinkage,
-                                     center=center)
+        filt = stLCMV(spat_temp_pat, shrinkage=shrinkage, center=center)
 
         # Test result of the filter
         if center:
@@ -109,4 +108,4 @@ def test_stlcmv():
             assert_equal(filt.cov.shrinkage, shrinkage)
 
     # Invalid shrinkage parameter
-    assert_raises(ValueError, erp_beamformer.LCMV, spat_temp_pat, 'invalid')
+    assert_raises(ValueError, stLCMV, spat_temp_pat, 'invalid')
