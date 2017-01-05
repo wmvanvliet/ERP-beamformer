@@ -92,7 +92,7 @@ def test_stlcmv():
         else:
             # Result may be off, use correlation instead
             assert_allclose(np.corrcoef(filt.fit_transform(X, y).T, y.T), 1)
-                        
+
         # Test if weight matrix has been properly stored
         assert_equal(filt.W_.shape, (n_channels * n_samples, 1))
 

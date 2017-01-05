@@ -1,6 +1,6 @@
-from nose.tools import assert_true, assert_raises
+from nose.tools import assert_raises
 import numpy as np
-from numpy.testing import assert_allclose, assert_equal
+from numpy.testing import assert_allclose
 
 from erp_beamformer import (infer_spatial_pattern, infer_temporal_pattern,
                             refine_pattern, LCMV)
