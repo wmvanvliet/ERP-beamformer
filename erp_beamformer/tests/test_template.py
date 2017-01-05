@@ -119,6 +119,15 @@ def test_infer_temporal_pattern():
     inferred_pattern = infer_temporal_pattern(X, y, LCMV(spat_pat), (3, 5))
     assert_allclose(inferred_pattern, -temp_pat)
 
+    assert_raises(ValueError, infer_temporal_pattern, X, y, LCMV(spat_pat),
+                  (0, 1), refine='invalid')
+    assert_raises(ValueError, infer_temporal_pattern, X, range(n_trials),
+                  (0, 1), LCMV(spat_pat))
+    assert_raises(ValueError, infer_temporal_pattern, X, y[:3],
+                  (0, 1), LCMV(spat_pat))
+    assert_raises(ValueError, infer_temporal_pattern, X, [[1, 2], [1, 2]],
+                  (0, 1), LCMV(spat_pat))
+
 
 def test_refine_pattern():
     """The the refine_pattern function."""
@@ -168,11 +177,18 @@ def test_refine_pattern():
                        dict(roi_time=(2, 4), baseline_time=(0, 1))),
         [0, 0, 4, 1, 0, 0]
     )
+    assert_allclose(
+        refine_pattern(temp, 'gauss', dict(mu=2, sigma=0.5)),
+        [0, 0.135335, 4, 0.135335, 0, 0],
+        atol=6
+    )
 
     # Invalid inputs
     assert_raises(ValueError, refine_pattern, temp, 'zero', dict())
     assert_raises(ValueError, refine_pattern, temp, 'peak-mean', dict())
     assert_raises(ValueError, refine_pattern, temp, 'thres', dict())
+    assert_raises(ValueError, refine_pattern, temp, 'gauss', dict())
+    assert_raises(ValueError, refine_pattern, temp, 'invalid', dict())
     assert_raises(ValueError, refine_pattern, temp, 'peak-mean',
                   dict(roi_time=(3, 3)))
     assert_raises(ValueError, refine_pattern, temp, 'peak-mean',

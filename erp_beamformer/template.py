@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import norm
 
 
 def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
@@ -92,7 +93,7 @@ def refine_pattern(pattern, method, method_params):
     ----------
     pattern : 1D array (n_samples) | 2D array (n_channels, n_samples)
         The temporal pattern to refine
-    method : 'zero' | 'peak-mean' | 'thres'
+    method : 'zero' | 'peak-mean' | 'thres' | 'gauss'
         The method used to refine the template:
         'zero':      Zero out everything outside the time region of interest.
         'peak-mean': Find the peak inside the time region of interest. Then,
@@ -104,6 +105,8 @@ def refine_pattern(pattern, method, method_params):
                      of interest, also zero out any part of the signal which
                      amplitude is below 4 standard deviations of the signal
                      amplitude during the baseline period.
+        'gauss':     Multiply the signal with a Gaussian kernel that is defined
+                     over time.
     method_params : dict
         Parameters for the chosen method. Each method uses different parameters
         taken from this dictionary. Possible parameters are:
@@ -117,6 +120,12 @@ def refine_pattern(pattern, method, method_params):
         baseline_time : tuple of ints
             The start and end time (in samples, end is exclusive) of the
             baseline period (the period before the onset of the event marker).
+
+        Used by 'gauss':
+        mu : int
+            Sample at which to center the Gaussian kernel.
+        sigma : float
+            Standard deviation (in samples) of the Gaussian kernel.
 
     Returns
     -------
@@ -185,8 +194,8 @@ def refine_pattern(pattern, method, method_params):
             roi_time = method_params['roi_time']
             baseline_time = method_params['baseline_time']
         except:
-            raise ValueError('The parameter "roi_time" or "baseline_time" is '
-                             'missing from the method_params dictionary.')
+            raise ValueError('The parameter "roi_time" and/or "baseline_time" '
+                             'is missing from the method_params dictionary.')
         baseline_std = np.std(
             np.abs(ref_pat[:, baseline_time[0]:baseline_time[1]])
         )
@@ -195,9 +204,21 @@ def refine_pattern(pattern, method, method_params):
         ref_pat[:, :roi_time[0]] = 0
         ref_pat[:, roi_time[1]:] = 0
 
+    elif method == 'gauss':
+        try:
+            mu = method_params['mu']
+            sigma = method_params['sigma']
+        except:
+            raise ValueError('The parameter "mu" and/or "sigma" is missing '
+                             'from the method_params dictionary.')
+
+        kernel = norm(mu, sigma).pdf(np.arange(ref_pat.shape[1]))
+        kernel /= kernel.max()
+        ref_pat *= kernel[np.newaxis, :]
+
     else:
         raise ValueError("Invalid value for refine parameter. Choose one of "
-                         "'zero', 'peak-mean' or 'thres'.")
+                         "'zero', 'peak-mean', 'thres' or 'gauss'.")
 
     return ref_pat.reshape(orig_dim)
 
@@ -226,7 +247,7 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
         period (the period before the onset of the event marker). This period
         is used to re-baseline the signal after the spatial beamformer has been
         applied to it.
-    refine : 'zero' | 'peak-mean' | 'thres' | None
+    refine : 'zero' | 'peak-mean' | 'thres' | 'guass' | None
         The method used to refine the template:
         'zero':      Zero out everything outside the time region of interest.
         'peak-mean': Find the peak inside the time region of interest. Then,
@@ -238,6 +259,8 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
                      region of interest, also zero out any part of the signal
                      which amplitude is below 4 standard deviations of the
                      signal amplitude during the baseline period.
+        'gauss':     Multiply the signal with a Gaussian kernel that is defined
+                     over time.
         Defaults to None, which means no refining of the template is performed.
     refine_params : dict | None
         Parameters for the chosen refining method. Each method uses different
@@ -252,6 +275,12 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
         baseline_time : tuple of ints
             Copied from the baseline_time parameter given to the
             infer_temporal_pattern function.
+
+        Used by 'gauss':
+        mu : int
+            Sample at which to center the Gaussian kernel.
+        sigma : float
+            Standard deviation (in samples) of the Gaussian kernel.
 
     Returns
     -------
