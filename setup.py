@@ -27,4 +27,5 @@ if __name__ == "__main__":
                        'Operating System :: MacOS'],
           platforms='any',
           packages=['erp_beamformer'],
+          install_requires=['numpy', 'scipy', 'scikit-learn'],
       )
