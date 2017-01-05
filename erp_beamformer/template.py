@@ -6,6 +6,7 @@ Author: Marijn van Vliet <w.m.vanvliet@gmail.com>
 """
 import numpy as np
 from scipy.stats import norm
+from sklearn.linear_model import LinearRegression
 
 
 def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
@@ -22,8 +23,8 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
     X : 3D array (n_trials, n_channels, n_samples)
         The trials.
     y : 1D array (n_trials,) or 2D array (n_trials, 1)
-        For each trial, a label indicating to which experimental condition
-        the trial belongs.
+        For each trial, a scalar representing an estimation of the amplitude of
+        the ERP component of interest in that trial.
     roi_time : tuple of ints (start, end) | None
         The start and end time (in samples, end is exclusive) of the time
         region of interest.  When method='peak', the search for maximum
@@ -45,42 +46,30 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
     spat_pat : 1D array (n_channels,)
         The spatial pattern of the ERP component.
     """
-    y = np.asarray(y)
-    if y.ndim == 2:
-        if y.shape[1] != 1:
-            raise ValueError('y should be an (n_trials, 1) array.')
-        y = y.ravel()
-
-    if len(y) != len(X):
-        raise ValueError('The first dimension of y should correspond with the '
-                         'first dimension of X.')
-
-    conditions = np.unique(y)
-    if len(conditions) != 2:
-        raise ValueError('There should be exactly 2 experimental conditions.')
+    n_trials, n_channels, n_samples = X.shape
 
     if roi_channels is None:
-        roi_channels = range(X.shape[1])
+        roi_channels = range(n_channels)
 
     if roi_time is None:
-        roi_time = (0, X.shape[2])
+        roi_time = (0, n_samples)
 
-    # Compute ERP difference waveform
-    diff = (X[y == conditions[0]].mean(axis=0) -
-            X[y == conditions[1]].mean(axis=0))
+    # Compute slope ERP
+    model = LinearRegression().fit(X.reshape(n_trials, -1), y)
+    slope = model.coef_.reshape(n_channels, n_samples)
 
     if method == 'peak':
         # Extract region of interest to look for the roi
-        ROI = diff[roi_channels, roi_time[0]:roi_time[1]]
+        ROI = slope[roi_channels, roi_time[0]:roi_time[1]]
 
         # Determine peak time for the roi
         peak_time = np.argmax(np.sum(ROI ** 2, axis=0)) + roi_time[0]
 
-        spat_pat = diff[:, peak_time]
+        spat_pat = slope[:, peak_time]
 
     elif method == 'mean':
         # Extract region of interest to look for the roi
-        ROI = diff[:, roi_time[0]:roi_time[1]]
+        ROI = slope[:, roi_time[0]:roi_time[1]]
         spat_pat = ROI.mean(axis=1)
 
     # Normalize the spatial template so all values are in the range [-1, 1]
@@ -244,8 +233,8 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
     X : 3D array (n_trials, n_channels, n_samples)
         The trials.
     y : 1D array (n_trials,) or 2D array (n_trials, 1)
-        For each trial, a label indicating to which experimental condition
-        the trial belongs.
+        For each trial, a scalar representing an estimation of the amplitude of
+        the ERP component of interest in that trial.
     spat_bf : instance of LCMV
         The spatial beamformer that will be used to extract the ERP timecourse.
     baseline_time : tuple of ints
@@ -293,38 +282,25 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
     temp_pat : 1D array (n_samples,)
         The temporal pattern of the ERP component.
     """
-    y = np.asarray(y)
-    if y.ndim == 2:
-        if y.shape[1] != 1:
-            raise ValueError('y should be an (n_trials, 1) array.')
-        y = y.ravel()
-
-    if len(y) != len(X):
-        raise ValueError('The first dimension of y should correspond with the '
-                         'first dimension of X.')
-
-    conditions = np.unique(y)
-    if len(conditions) != 2:
-        raise ValueError('There should be exactly 2 experimental conditions.')
-
-    timecourses = spat_bf.fit_transform(X, y)
+    # Apply spatial beamformer to extract the ERP component timecourse
+    timecourse = spat_bf.fit_transform(X, y)
 
     # Re-baseline the signal
-    timecourses -= np.mean(
-        timecourses[..., baseline_time[0]:baseline_time[1]],
-        axis=-1,
-        keepdims=True,
-    )
+    timecourse -= np.mean(timecourse[:, baseline_time[0]:baseline_time[1]])
 
-    # Use the difference timecourse as initial estimate of the temporal pattern
-    temp_pat = (timecourses[y == conditions[0]].mean(axis=0) -
-                timecourses[y == conditions[1]].mean(axis=0))
+    # Compute slope ERP, which will be the temporal template
+    print timecourse.shape, y.shape
+    model = LinearRegression().fit(timecourse, y)
+    temp_pat = model.coef_.ravel()
 
     if refine is not None:
         if refine_params is None:
             refine_params = dict()
         refine_params['baseline_time'] = baseline_time
         temp_pat = refine_pattern(temp_pat, refine, refine_params)
+
+    # Re-baseline the signal
+    temp_pat -= np.mean(temp_pat[baseline_time[0]:baseline_time[1]])
 
     # Normalize the temporal template so all values are in the range [-1, 1]
     temp_pat /= np.max(np.abs(temp_pat))

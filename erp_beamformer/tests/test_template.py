@@ -39,16 +39,27 @@ def _gen_trials(spat_pattern=0, temp_pattern=0):
     return X, y
 
 
+def _gen_slope_trials(spat_pattern=0, temp_pattern=0):
+    y = np.array([-2, -1, 0, 1, 2, 3]).astype(float)
+    X = np.einsum(
+        'i,jk->ijk',
+        y,
+        _gen_spat_temp_pattern(spat_pattern, temp_pattern)
+    )
+    return X, y
+
+
 def test_infer_spatial_pattern():
     """Test the infer_spatial_pattern function."""
     # The default
     spat_pat = _gen_spatial_pattern()
+    spat_pat /= np.abs(spat_pat).max()
     X, y = _gen_trials()
     inferred_pattern = infer_spatial_pattern(X, y)
-    assert_allclose(inferred_pattern, -spat_pat / np.abs(spat_pat).max())
+    assert_allclose(inferred_pattern, spat_pat)
 
     inferred_pattern = infer_spatial_pattern(X, np.array(y)[:, np.newaxis])
-    assert_allclose(inferred_pattern, -spat_pat / np.abs(spat_pat).max())
+    assert_allclose(inferred_pattern, spat_pat)
 
     # method='peak'
     spat_pat = _gen_spatial_pattern(0)  # First pattern should be detected
@@ -56,24 +67,24 @@ def test_infer_spatial_pattern():
     X, y = _gen_trials(0, 0)
     X += _gen_trials(1, 1)[0]
     inferred_pattern = infer_spatial_pattern(X, y, method='peak')
-    assert_allclose(inferred_pattern, -spat_pat)
+    assert_allclose(inferred_pattern, spat_pat)
 
     # test ROI channels
     spat_pat = _gen_spatial_pattern(1)  # Second pattern should be detected
     spat_pat /= np.abs(spat_pat).max()
     inferred_pattern = infer_spatial_pattern(X, y, method='peak',
                                              roi_channels=[5, 6])
-    assert_allclose(inferred_pattern, -spat_pat)
+    assert_allclose(inferred_pattern, spat_pat)
 
     # test ROI time
     spat_pat = _gen_spatial_pattern(1)  # Second pattern should be detected
     spat_pat /= np.abs(spat_pat).max()
     inferred_pattern = infer_spatial_pattern(X, y, method='peak',
                                              roi_time=(0, 6))
-    assert_allclose(inferred_pattern, -spat_pat)
+    assert_allclose(inferred_pattern, spat_pat)
 
     # method='mean'
-    diff = X[y == -1].mean(axis=0) - X[y == 1].mean(axis=0)
+    diff = X[y == 1].mean(axis=0) - X[y == -1].mean(axis=0)
     spat_pat = diff[:, 2:4].mean(axis=1)
     spat_pat /= np.abs(spat_pat).max()
     inferred_pattern = infer_spatial_pattern(X, y, method='mean',
@@ -86,10 +97,12 @@ def test_infer_spatial_pattern():
                                              roi_channels=[0, 2, 3])
     assert_allclose(inferred_pattern, spat_pat)
 
-    # Invalid inputs
-    assert_raises(ValueError, infer_spatial_pattern, X, range(n_trials))
-    assert_raises(ValueError, infer_spatial_pattern, X, y[:3])
-    assert_raises(ValueError, infer_spatial_pattern, X, [[1, 2], [1, 2]])
+    # Test slope ERP
+    spat_pat = _gen_spatial_pattern()
+    spat_pat /= np.abs(spat_pat).max()
+    X, y = _gen_slope_trials()
+    inferred_pattern = infer_spatial_pattern(X, y, method='peak')
+    assert_allclose(inferred_pattern, spat_pat)
 
 
 def test_infer_temporal_pattern():
@@ -100,7 +113,7 @@ def test_infer_temporal_pattern():
     temp_pat /= np.abs(temp_pat).max()
     X, y = _gen_trials()
     inferred_pattern = infer_temporal_pattern(X, y, LCMV(spat_pat), (0, 1))
-    assert_allclose(inferred_pattern, -temp_pat)
+    assert_allclose(inferred_pattern, temp_pat)
 
     # Refining the template
     temp_pat[:4] = 0
@@ -110,23 +123,17 @@ def test_infer_temporal_pattern():
         X, y, LCMV(spat_pat), (0, 1),
         refine='zero', refine_params=dict(roi_time=(4, 8))
     )
-    assert_allclose(inferred_pattern, -temp_pat)
+    assert_allclose(inferred_pattern, temp_pat)
 
     # Test baseline
     temp_pat = _gen_temporal_pattern()
     temp_pat -= temp_pat[3:5].mean()
     temp_pat /= np.abs(temp_pat).max()
     inferred_pattern = infer_temporal_pattern(X, y, LCMV(spat_pat), (3, 5))
-    assert_allclose(inferred_pattern, -temp_pat)
+    assert_allclose(inferred_pattern, temp_pat)
 
     assert_raises(ValueError, infer_temporal_pattern, X, y, LCMV(spat_pat),
                   (0, 1), refine='invalid')
-    assert_raises(ValueError, infer_temporal_pattern, X, range(n_trials),
-                  (0, 1), LCMV(spat_pat))
-    assert_raises(ValueError, infer_temporal_pattern, X, y[:3],
-                  (0, 1), LCMV(spat_pat))
-    assert_raises(ValueError, infer_temporal_pattern, X, [[1, 2], [1, 2]],
-                  (0, 1), LCMV(spat_pat))
 
 
 def test_refine_pattern():
