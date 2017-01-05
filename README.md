@@ -10,8 +10,8 @@ URL: http://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7202846&isnumber=73
 
 ## Installation
 
-To install the python version of the code, execute:
+It is highly recommended to use the python version of the code. This code has been thouroughly tested. This package depends on the NumPy, SciPy and Scikit-Learn packages. To install the python version of the code, execute:
 
     python setup.py install
 
-The MATLAB version of the code can be found in the `matlab/` folder. Add this folder to your MATLAB path.
+The MATLAB version of the code can be found in the `matlab/` folder. Add this folder to your MATLAB path. This version has less functionality and is less thouroughly tested.
