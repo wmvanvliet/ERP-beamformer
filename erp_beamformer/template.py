@@ -48,6 +48,10 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
     """
     n_trials, n_channels, n_samples = X.shape
 
+    y = np.asarray(y)
+    if y.ndim == 1:
+        y = y[:, np.newaxis]
+
     if roi_channels is None:
         roi_channels = range(n_channels)
 
@@ -55,7 +59,7 @@ def infer_spatial_pattern(X, y, roi_time=None, roi_channels=None,
         roi_time = (0, n_samples)
 
     # Compute slope ERP
-    model = LinearRegression().fit(X.reshape(n_trials, -1), y)
+    model = LinearRegression().fit(y, X.reshape(n_trials, -1))
     slope = model.coef_.reshape(n_channels, n_samples)
 
     if method == 'peak':
@@ -282,6 +286,10 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
     temp_pat : 1D array (n_samples,)
         The temporal pattern of the ERP component.
     """
+    y = np.asarray(y)
+    if y.ndim == 1:
+        y = y[:, np.newaxis]
+
     # Apply spatial beamformer to extract the ERP component timecourse
     timecourse = spat_bf.fit_transform(X, y)
 
@@ -289,8 +297,7 @@ def infer_temporal_pattern(X, y, spat_bf, baseline_time, refine=None,
     timecourse -= np.mean(timecourse[:, baseline_time[0]:baseline_time[1]])
 
     # Compute slope ERP, which will be the temporal template
-    print timecourse.shape, y.shape
-    model = LinearRegression().fit(timecourse, y)
+    model = LinearRegression().fit(y, timecourse)
     temp_pat = model.coef_.ravel()
 
     if refine is not None:
