@@ -33,13 +33,18 @@ class LCMV(BaseEstimator, TransformerMixin):
         WARNING: only set to False if the data has been pre-centered. Applying
         the filter to un-centered data may result in inaccuracies.
 
+    cov_i : 2D array (n_channels, n_channels) | None
+        The inverse spatial covariance matrix of the data. Use this to avoid
+        re-computing it during fitting. When this parameter is set, the
+        shrinkage parameter is ignored.
+
     Attributes
     ----------
     W_ : 2D array (n_channels, 1)
         Column vector containing the filter weights.
     '''
-    def __init__(self, template, shrinkage='oas', center=True):
-        self.template = np.asarray(template).flatten()[:, np.newaxis]
+    def __init__(self, template, shrinkage='oas', center=True, cov_i=None):
+        self.template = np.asarray(template).ravel()[:, np.newaxis]
         self.center = center
 
         if center:
@@ -56,6 +61,8 @@ class LCMV(BaseEstimator, TransformerMixin):
         else:
             raise ValueError('Invalid value for shrinkage parameter.')
 
+        self.cov_i = cov_i
+
     def fit(self, X, y=None):
         """Fit the beamformer to the data.
 
@@ -69,12 +76,15 @@ class LCMV(BaseEstimator, TransformerMixin):
         if self.center:
             X = X - X.mean(axis=1, keepdims=True)
 
-        # Concatenate trials into an (n_channels, n_samples) matrix
-        cont_eeg = np.transpose(X, [1, 0, 2]).reshape((X.shape[1], -1))
+        if self.cov_i is None:
+            # Concatenate trials into an (n_channels, n_samples) matrix
+            cont_eeg = np.transpose(X, [1, 0, 2]).reshape((X.shape[1], -1))
 
-        # Calculate spatial covariance matrix
-        c = self.cov.fit(cont_eeg.T)
-        sigma_x_i = c.precision_
+            # Calculate spatial covariance matrix
+            c = self.cov.fit(cont_eeg.T)
+            sigma_x_i = c.precision_
+        else:
+            sigma_x_i = self.cov_i
 
         # Compute spatial LCMV filter
         self.W_ = sigma_x_i.dot(self.template)
@@ -135,12 +145,17 @@ class stLCMV(BaseEstimator, TransformerMixin):
         WARNING: only set to False if the data has been pre-centered. Applying
         the filter to un-centered data may result in inaccuracies.
 
+    cov_i : 2D array (n_channels, n_channels) | None
+        The inverse spatio-temporal covariance matrix of the data. Use this to
+        avoid re-computing it during fitting. When this parameter is set, the
+        shrinkage parameter is ignored.
+
     Attributes
     ----------
     W_ : 2D array (n_channels * n_samples, 1)
         Column vector containing the filter weights.
     '''
-    def __init__(self, template, shrinkage='oas', center=True):
+    def __init__(self, template, shrinkage='oas', center=True, cov_i=None):
         self.template = template
         self.template = np.atleast_2d(template)
         self.center = center
@@ -159,11 +174,13 @@ class stLCMV(BaseEstimator, TransformerMixin):
         else:
             raise ValueError('Invalid value for shrinkage parameter.')
 
+        self.cov_i = cov_i
+
     def _center(self, X):
         data_mean = X.reshape(X.shape[0], -1).mean(axis=1)
         return X - data_mean[:, np.newaxis, np.newaxis]
 
-    def fit(self, X, y):
+    def fit(self, X, y=None):
         """Fit the beamformer to the data.
 
         Parameters
@@ -179,16 +196,20 @@ class stLCMV(BaseEstimator, TransformerMixin):
         n_trials, _, n_samples = X.shape
         template = self.template[:, :n_samples]
 
-        c = self.cov.fit(X.reshape(n_trials, -1))
-        sigma_x_i = c.precision_
+        if self.cov_i is None:
+            c = self.cov.fit(X.reshape(n_trials, -1))
+            sigma_x_i = c.precision_
+        else:
+            sigma_x_i = self.cov_i
 
-        template = self.template.flatten()[:, np.newaxis]
+        template = self.template.ravel()[:, np.newaxis]
         self.W_ = sigma_x_i.dot(template)
 
         # Noise normalization
-        self.W_ = self.W_.dot(
-            np.linalg.inv(reduce(np.dot, [template.T, sigma_x_i, template]))
-        )
+        if self.center:
+            self.W_ = self.W_.dot(
+                np.linalg.inv(reduce(np.dot, [template.T, sigma_x_i, template]))
+            )
 
         return self
 

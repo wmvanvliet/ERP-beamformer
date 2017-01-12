@@ -152,7 +152,7 @@ def plot_spatial_pattern(spatial_pattern, fig=None):
 
     cm = np.max(np.abs(spatial_pattern.data))
     psychic.scalpplot.plot_scalp(spatial_pattern.data.flatten(),
-                                 spatial_pattern.ids[0,:],
+                                 spatial_pattern.ids[0, :],
                                  cmap=plt.get_cmap('RdBu_r'))
     plt.clim(-cm, cm)
     plt.title('spatial pattern')
@@ -164,7 +164,7 @@ def plot_temporal_pattern(temporal_pattern, fig=None):
     if fig is None:
         fig = plt.figure()
 
-    plt.plot(temporal_pattern.ids[0,:], temporal_pattern.data[0,:], '-k')
+    plt.plot(temporal_pattern.ids[0, :], temporal_pattern.data[0, :], '-k')
     plt.xlim(temporal_pattern.ids.min(), temporal_pattern.ids.max())
     plt.xlabel('time (s)')
     plt.title('temporal pattern')
