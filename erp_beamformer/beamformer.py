@@ -7,7 +7,8 @@ Author: Marijn van Vliet <w.m.vanvliet@gmail.com>
 import numpy as np
 from sklearn.covariance import (EmpiricalCovariance, ShrunkCovariance, OAS,
                                 LedoitWolf)
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin
+from sklearn.linear_model.base import LinearModel
 
 
 class LCMV(BaseEstimator, TransformerMixin):
@@ -40,8 +41,8 @@ class LCMV(BaseEstimator, TransformerMixin):
 
     Attributes
     ----------
-    W_ : 2D array (n_channels, 1)
-        Column vector containing the filter weights.
+    coef_ : 1D array (n_channels,)
+        Vector containing the filter weights.
     '''
     def __init__(self, template, shrinkage='oas', center=True, cov_i=None):
         self.template = np.asarray(template).ravel()[:, np.newaxis]
@@ -87,10 +88,10 @@ class LCMV(BaseEstimator, TransformerMixin):
             sigma_x_i = self.cov_i
 
         # Compute spatial LCMV filter
-        self.W_ = sigma_x_i.dot(self.template)
+        self.coef_ = sigma_x_i.dot(self.template).ravel()
 
         # Noise normalization
-        self.W_ = self.W_.dot(
+        self.coef_ = self.coef_.dot(
             np.linalg.inv(
                 reduce(np.dot, [self.template.T, sigma_x_i, self.template])
             )
@@ -117,12 +118,12 @@ class LCMV(BaseEstimator, TransformerMixin):
         n_trials, _, n_samples = X.shape
         X_trans = np.zeros((n_trials, n_samples))
         for i in range(n_trials):
-            X_trans[i, :] = np.dot(self.W_.T, X[i, :, :]).ravel()
+            X_trans[i, :] = np.dot(self.coef_.T, X[i, :, :]).ravel()
 
         return X_trans
 
 
-class stLCMV(BaseEstimator, TransformerMixin):
+class stLCMV(LinearModel, TransformerMixin, RegressorMixin):
     '''
     Spatio-temporal LCMV beamformer operating on a spatio-temporal template.
 
@@ -152,16 +153,20 @@ class stLCMV(BaseEstimator, TransformerMixin):
 
     Attributes
     ----------
-    W_ : 2D array (n_channels * n_samples, 1)
-        Column vector containing the filter weights.
+    coef_ : 1D array (n_channels * n_samples,)
+        Vector containing the filter weights.
     '''
-    def __init__(self, template, shrinkage='oas', center=True, cov_i=None):
+    def __init__(self, template, shrinkage='oas', center=True, cov_i=None,
+                 fit_intercept=True, normalize=True, copy_X=True):
         self.template = template
         self.template = np.atleast_2d(template)
         self.center = center
+        self.fit_intercept = fit_intercept
+        self.normalize = normalize
+        self.copy_X = copy_X
 
-        if center:
-            self.template -= np.mean(self.template)
+        #if center:
+        #    self.template -= np.mean(self.template)
 
         if shrinkage == 'oas':
             self.cov = OAS()
@@ -190,10 +195,15 @@ class stLCMV(BaseEstimator, TransformerMixin):
         y : None
             Unused.
         """
-        if self.center:
-            X = self._center(X)
+        #if self.center:
+        #    X = self._center(X)
+        n_trials, n_channels, n_samples = X.shape
+        X = X.reshape(n_trials, -1) 
+        X, y, X_offset, y_offset, X_scale = LinearModel._preprocess_data(
+            X, y, self.fit_intercept, self.normalize, self.copy_X
+        )
+        X = X.reshape(n_trials, n_channels, n_samples)
 
-        n_trials, _, n_samples = X.shape
         template = self.template[:, :n_samples]
 
         if self.cov_i is None:
@@ -203,14 +213,12 @@ class stLCMV(BaseEstimator, TransformerMixin):
             sigma_x_i = self.cov_i
 
         template = self.template.ravel()[:, np.newaxis]
-        self.W_ = sigma_x_i.dot(template)
+        self.coef_ = sigma_x_i.dot(template).ravel()
 
         # Noise normalization
-        if self.center:
-            self.W_ = self.W_.dot(
-                np.linalg.inv(reduce(np.dot, [template.T, sigma_x_i, template]))
-            )
+        self.coef_ /= reduce(np.dot, [template.T, sigma_x_i, template])[0, 0]
 
+        self._set_intercept(X_offset, y_offset, X_scale)
         return self
 
     def transform(self, X):
@@ -226,9 +234,9 @@ class stLCMV(BaseEstimator, TransformerMixin):
         X_trans : 3D array (n_trials, 1)
             The transformed data.
         """
-        if self.center:
-            X = self._center(X)
+        #if self.center:
+        #   X = self._center(X)
 
         n_trials = X.shape[0]
-        X_trans = X.reshape(n_trials, -1).dot(self.W_)
+        X_trans = X.reshape(n_trials, -1).dot(self.coef_)
         return X_trans
