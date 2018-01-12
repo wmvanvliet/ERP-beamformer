@@ -8,7 +8,7 @@ import numpy as np
 import psychic
 from matplotlib import pyplot as plt
 
-import template
+from . import template
 
 def infer_spatial_pattern(data, y=None, roi_time=None, roi_channels=None,
                           method='peak'):
